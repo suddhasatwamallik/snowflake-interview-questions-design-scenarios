@@ -1,0 +1,113 @@
+select current_session(), current_client()---Understand the difference between client id and session id in Snowflake
+
+//The below set of databases, schemas and roles are created to be consumed by the DBT piplines
+
+create database analytics
+create role transform_role
+grant usage on database analytics to role transform_role;
+grant create schema on database analytics to role transform_role;
+grant usage on all schemas in database analytics to role transform_role;
+
+--A very good feature of Snowflake is ability to grant access on future objects like Schemas, Tables etc.
+
+grant usage on future schemas in database analytics to role transform_role; 
+grant select on all tables in database analytics to role transform_role;
+grant select on future tables in database analytics to role transform_role;
+grant select on all views in database analytics to role transform_role;
+grant select on future views in database analytics to role transform_role;
+create user transform_user password = '123' default_role = transform_role;
+grant role transform_role to user transform_user;
+
+//Steps of assignment 1. Create a file format 2. Alter the file format 3. Finally drop the file format
+
+create or replace file format MY_PRACTICE_FILE_FORMAT;
+alter file format MY_PRACTICE_FILE_FORMAT SET TRIM_SPACE=TRUE SKIP_HEADER = 1
+show file formats LIKE 'MY_PRACTICE_FILE_FORMAT'
+DROP file format MY_PRACTICE_FILE_FORMAT
+
+//Steps of Assignment
+
+CREATE OR REPLACE TABLE DEMO_DB.PUBLIC.LINEITEM AS
+SELECT * FROM
+"SNOWFLAKE_SAMPLE_DATA"."TPCH_SF100"."LINEITEM";
+
+//Before you run below query wait for 2 to 3 mins. Snowflake will take some time to update it's metadata.
+
+select *
+from snowflake.information_schema.table_storage_metrics
+where table_name = 'LINEITEM';
+
+//From the output of above query, record,
+//Mention active bytes : 16134166528
+//Mention time travel bytes : 0
+
+// Step 2 :
+
+UPDATE DEMO_DB.PUBLIC.LINEITEM
+SET L_ORDERKEY = '22657357002'
+WHERE
+L_SHIPMODE='AIR';
+
+//Before you run below query wait for 2 to 3 mins. Snowflake will take some time to update it's metadata.
+
+select *
+from snowflake.information_schema.table_storage_metrics
+where table_name = 'LINEITEM';
+
+//Mention active bytes : 16453086208
+//Mention time travel bytes : 16134166528
+//Mention time taken by Update statement : 34.59 s
+
+//Step 3 :
+
+UPDATE DEMO_DB.PUBLIC.LINEITEM
+SET L_ORDERKEY = '22657357002'
+WHERE
+L_SHIPMODE='RAIL';
+
+//Before you run below query wait for 2 to 3 mins. Snowflake will take some time to update it's metadata.
+
+select *
+from snowflake.information_schema.table_storage_metrics
+where table_name = 'LINEITEM';
+
+//Mention active bytes : 16418713088 
+//Mention time travel bytes : 32587252736
+//Mention time taken by Update statement : 32.65 sec
+
+//Step 4 :
+//Create another table,
+
+CREATE TABLE DEMO_DB.PUBLIC.LINEITEM2 AS
+SELECT * FROM
+"SNOWFLAKE_SAMPLE_DATA"."TPCH_SF100"."LINEITEM";
+
+//Execute below update statement,
+
+UPDATE DEMO_DB.PUBLIC.LINEITEM2
+SET L_ORDERKEY = CASE
+WHEN L_SHIPMODE='AIR' THEN '22657357001'
+WHEN L_SHIPMODE='RAIL' THEN '22657357001'
+ELSE L_ORDERKEY
+END
+
+//Before you run below query wait for 2 to 3 mins. Snowflake will take some time to update it's metadata.
+
+select *
+from snowflake.information_schema.table_storage_metrics
+where table_name = 'LINEITEM2';
+
+//Mention active bytes : 16423150080
+//Mention time travel bytes : 16143267328
+//Mention time taken by Update statement : 35.64 sec
+
+//By comparing, (Step 1 and Step 2) with Step 3 query. What observation you made ?
+
+//In step 1 and step 2 we executed transactions multiple times on same table. 
+//Causing snowflake to scan and update micro-partitions 2 times resulting in, deletion and insertion of files 2 times in backend.
+
+//But in step 3, As we clubbed both transactions in one statement snowflake scanned table only once.
+
+//In terms of processing and storage step 1 and step 2 is costly.
+
+//Sparse transactions on same same table is costly.
